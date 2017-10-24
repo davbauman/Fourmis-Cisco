@@ -127,6 +127,8 @@ data$Ind <- factor(data$Ind, levels = c("Male", "Gyne", "q1d", "q3d", "q9d", "q2
 data$Tissue <- factor(data$Tissue, levels = c("cuticle", "sex"))
 str(data)
 
+# The reference levels of Ind and Tissue are Male and cuticle.
+
 # II.1. General significance test of the model:
 # ********************************************
 
@@ -389,10 +391,260 @@ anova(factor.Ind.rda, step = 1000, perm.max = 1000, strata = data$Tissue)
 factor.Tissue.rda <- rda(Y, helm[, 7], helm[, c(2:6, 8:12)])
 anova(factor.Tissue.rda, step = 1000, perm.max = 1000, strata = data$Ind)
 
-# RDA and triplot for the significant factors
+# RDA and triplot for the interactions:
 rda.out <- interaction.rda
-windows(title="Multivariate ANOVA - altitude")
 plot(rda.out, scaling = 1, display = c("sp", "wa", "cn"), 
      main = "Multivariate ANOVA, Interaction Ind*Tissue - scaling 1 - wa scores")
 spe.manova.sc <- scores(rda.out, choices = 1:2, scaling = 1, display = "sp")
 arrows(0, 0, spe.manova.sc[, 1], spe.manova.sc[, 2], length = 0, col = "red")
+
+# global RDA:
+global.rda <- rda(Y, helm[, 2:12])
+anova(global.rda, step = 1000, perm.max = 1000)
+(R2adj <- RsquareAdj(global.rda)$adj.r.squared)
+
+### Multiple-comparison test:
+# ***************************
+   # We build the contrast matrix containing the hypotheses that we want to test:
+   # ****************************************************************************
+
+# In order to know in what order the contrast matrix must be built:
+mod <- lm(Shannon ~ Ind * Tissue, data = data)
+simplified_names <- gsub("Tissue|Ind", "", row.names(summary(mod)$coefficients))
+data.frame(id = 1:length(simplified_names), names = simplified_names)
+
+X <- rbind(
+    "male cuticle - male sex" <- c(1,0,0,0,0,0,0,0,0,0,0,0) - c(1,0,0,0,0,0,1,0,0,0,0,0),
+    "gyne cuticle - gyne sex" <- c(1,1,0,0,0,0,0,0,0,0,0,0) - c(1,1,0,0,0,0,1,1,0,0,0,0),
+    "q1d cuticle - q1d sex"   <- c(1,0,1,0,0,0,0,0,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
+    "q3d cuticle - q3d sex"   <- c(1,0,0,1,0,0,0,0,0,0,0,0) - c(1,0,0,1,0,0,1,0,0,1,0,0),
+    "q9d cuticle - q9d sex"   <- c(1,0,0,0,1,0,0,0,0,0,0,0) - c(1,0,0,0,1,0,1,0,0,0,1,0),
+    "q24d cuticle - q24d sex" <- c(1,0,0,0,0,1,0,0,0,0,0,0) - c(1,0,0,0,0,1,1,0,0,0,0,1),
+    "male sex - gyne sex"     <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,1,0,0,0,0,1,1,0,0,0,0),
+    "male sex - q1d sex"      <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
+    "gyne sex - q1d sex"      <- c(1,1,0,0,0,0,1,1,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
+    "q1d sex - q3d sex"       <- c(1,0,1,0,0,0,1,0,1,0,0,0) - c(1,0,0,1,0,0,1,0,0,1,0,0),
+    "q3d sex - q9d sex"       <- c(1,0,0,1,0,0,1,0,0,1,0,0) - c(1,0,0,0,1,0,1,0,0,0,1,0),
+    "q9d sex - q24d sex"      <- c(1,0,0,0,1,0,1,0,0,0,1,0) - c(1,0,0,0,0,1,1,0,0,0,0,1)
+)
+
+colnames(X) <- simplified_names
+row.names(X) <- c("male cuticle - male sex", "gyne cuticle - gyne sex", "q1d cuticle - q1d sex",
+                  "q3d cuticle - q3d sex", "q9d cuticle - q9d sex", "q24d cuticle - q24d sex",
+                  "male sex - gyne sex", "male sex - q1d sex", "gyne sex - q1d sex",
+                  "q1d sex - q3d sex", "q3d sex - q9d sex", "q9d sex - q24d sex")
+
+matresults <- data.frame(Hypothesis = row.names(X))
+list.modmc <- vector("list", nrow(X))
+
+library(multcomp)
+
+sign <- function (x) {
+  if (x > 0) res <- "pos"
+  else res <- "neg"
+  return(res)
+}
+
+# Empty colums (bacteria OTU never detected):
+col0 <- which(as.numeric(apply(as.matrix(datam), 2, sum)) == 0)
+datam <- datam[, -col0]
+
+for (i in 1:ncol(datam)) {
+  mod <- lm(datam[, i] ~ Ind * Tissue, data = data)
+  modmc <- glht(mod, linfct = X)
+  list.modmc[[i]] <- summary(modmc)
+  matresults[, i+1] <- sapply(as.numeric(coef(modmc)), sign)
+}
+
+# Manually erase the coefficient signs corresponding to non significant results:
+i <- 50
+list.modmc[[i]]
+v <- c(1:12)[-c(6,12)]
+matresults[v, i] <- NA
+
+for (i in 1:nrow(matresults)) {
+  matresults[i, 51] <- length(which(matresults[i, ] == "pos"))
+  matresults[i, 52] <- length(which(matresults[i, ] == "neg"))
+}
+colnames(matresults)[c(51, 52)] <- c("Total_pos", "Total_neg")
+
+write.table(matresults, "results_multcomp_2way-manova.txt", sep = "\t")
+
+# II.3. Distance-based RDA on Bray-Curtis distances:
+# **************************************************
+# We first remove the empty rows (samples without any detected bacteria)
+row0 <- which(as.numeric(apply(as.matrix(datam), 1, sum)) == 0)
+
+datam2 <- datam[-row0, ]
+dim(datam2)
+
+Ind <- data[-row0, 1]
+Tissue <- data[-row0, 2]
+
+interact.dbrda <- capscale(datam2 ~ Ind * Tissue + Condition(Ind + Tissue),
+                           distance = "bray", add = TRUE)
+anova(interact.dbrda, step = 1000, perm.max = 1000)
+summary(interact.dbrda)
+
+global.dbrda <- capscale(datam2 ~ Ind + Tissue + Ind * Tissue, distance = "bray", add = TRUE)
+anova(global.dbrda, step = 1000, perm.max = 1000)
+#summary(global.dbrda)
+(R2adj_db <- RsquareAdj(global.dbrda)$adj.r.squared)
+  
+# II.4. Normal RDA with factors and plot with centroids:
+# ******************************************************
+var <- as.data.frame(cbind(Ind, Tissue))
+rda.test <- rda(datam2 ~ Ind + Tissue + Ind*Tissue, data = var)
+anova(rda.test, step = 1000)
+summary(rda.test)
+
+plot(rda.test, scaling = 1, main = "Triplot RDA - datam2 ~ all - scaling 1 - wa scores")
+
+# II.5. NMDS of the bacterial community:
+### ************************************
+# We first remove the empty rows (samples without any detected bacteria)
+row0 <- which(as.numeric(apply(as.matrix(datam), 1, sum)) == 0)
+datam2 <- datam[-row0, ]
+dim(datam2)
+
+Y <- decostand(datam2, "hellinger")
+nmds <- metaMDS(Y, distance = "euclidean", k = 3, trymax = 10000)
+nmds
+nmds.sc <- scores(nmds, display = "sites", choices = c(1:3))
+
+plot(nmds, type = "t", main = paste("NMDS/Euclidean on Hellinger-transf. - Stress =", 
+                                        round(nmds$stress, 3)))
+abline(h = 0, lty = 3)
+abline(v = 0, lty = 3)
+
+# Plot personnalisé :
+# *******************
+# For the tissue:
+type <- grepl("cut", row.names(Y))
+bg <- c()
+tis <- c()
+for (i in 1:nrow(Y)) {
+  if (type[i] == TRUE) {   # cuticle
+    tis[i] = 24
+    bg <- c(bg, "black")
+  } else {                 # sex
+    tis[i] = 21
+    bg <- c(bg, "darkgray")
+  }
+}
+
+plot(nmds, type = "n", main = paste("NMDS/Euclidean on Hellinger-transf. - Stress =", 
+                                    round(nmds$stress, 3)))
+abline(h = 0, lty = 3)
+abline(v = 0, lty = 3)
+for (i in 1:nrow(Y)) points(nmds.sc[i, 1], nmds.sc[i, 2], pch = tis[i], bg = bg[i])
+
+# For the individuals and tissues together:
+shape <- c(rep(24, 5), rep(21, 2), rep(21, 5), rep(21, 4), rep(24, 5), rep(21, 4), rep(21, 2), 
+           rep(21, 5), rep(21, 4), rep(24, 5), rep(21, 2), rep(21, 2), rep(21, 3), rep(21, 2),
+           rep(24, 5), rep(21, 3), rep(21, 3), rep(21, 3), rep(21, 3), rep(24, 5), rep(21, 5), 
+           rep(21, 2), rep(21, 4), rep(21, 5), rep(24, 5), rep(21, 5), rep(21, 4), rep(21, 4),
+           rep(21, 3))
+# Different colours within a same ind (according to the tissue factor):
+bg <- c(rep("black", 5), rep("darkgray", 11), rep("darkgreen", 5), rep("darkolivegreen3", 15), 
+        rep("goldenrod3", 5), rep("yellow", 9), rep("green4", 5), rep("green", 12), 
+        rep("violetred4", 5), rep("violetred", 16), rep("turquoise4", 5), rep("turquoise", 16))
+# Same colour within a same ind (different tissues differ in the shape):
+bg <- c(rep("black", 16), rep("darkgreen", 20), rep("darkgray", 14), rep("green4", 17), 
+        rep("darkgoldenrod3", 21), rep("firebrick", 21))
+
+plot(nmds, type = "n", main = paste("NMDS/Euclidean on Hellinger-transf. - Stress =", 
+                                    round(nmds$stress, 3)))
+abline(h = 0, lty = 3)
+abline(v = 0, lty = 3)
+for (i in 1:nrow(Y)) points(nmds.sc[i, 1], nmds.sc[i, 2], pch = tis[i], bg = bg[i])
+
+#bg <- c(rep("black", 5), rep("darkgray", 2), rep("brown", 5), rep('chocolate3', 4), 
+#        rep("chartreuse3", 5), rep("cornflowerblue", 4), rep("blue2", 2), 
+#        rep("darkgoldenrod1", 5), rep("darkcyan", 4), rep("darkmagenta", 5), 
+#        rep("darkorange", 2), rep("darkseagreen2", 2), rep("deeppink", 3), rep("darksalmon", 2),
+#        rep("green1", 5), rep("lightcoral", 3), rep("hotpink3", 3), rep("khaki", 3), 
+#        rep("mediumorchid3", 3), rep("mediumpurple1", 5), rep("olivedrab", 5), 
+#        rep("orange", 2), rep("orangered1", 4), rep("peru", 5), rep("plum1", 5), 
+#        rep("thistle", 5), rep("turquoise1", 4), rep("violetred", 4), rep("yellow", 3))
+
+# Shepard plot and goodness of fit (way of assessing the appropriateness of an NMDS result)
+par(mfrow = c(1, 2))
+stressplot(nmds, main = "Shepard plot")
+gof = goodness(nmds)
+plot(nmds, type = "n", main = "Goodness of fit")
+points(nmds, display = "sites", cex = gof*200)
+
+# II.6. PCoA (Bray-Curtis):
+# *************************
+
+spe.bray <- vegdist(datam2)
+spe.b.pcoa <- cmdscale(spe.bray, k = nrow(datam2) - 1, eig = TRUE)
+#Plot of the sites and weighted average projection if species
+ordiplot(scores(spe.b.pcoa)[, c(1, 2)], type = "t", main = "PCoA with OTU")
+abline(h = 0,lty = 3)
+abline(v = 0,lty = 3)
+spe.wa <- wascores(spe.b.pcoa$points[, 1:2], datam2)
+text(spe.wa, rownames(spe.wa), cex = 0.7, col = "red")
+
+# PCoA on a Euclidean distance matrix computed on a Hellinger-transformed species abundance 
+# matrix
+
+spe.h <- decostand(datam2, "hel")
+spe.h.pcoa <- pcoa(dist(spe.h))
+par(mfrow=c(1, 2))
+# Biplot on Hellinger-transformed species data
+biplot.pcoa(spe.h.pcoa, spe.h, dir.axis2 = -1)
+abline(h = 0, lty = 3)
+abline(v = 0, lty = 3)
+# Biplot on standardized Hellinger-transformed species data (standardization of the 
+# explanatory variables to be projected on the plot may help better visualize the variables 
+# if they have very different variances):
+spe.std <- apply(spe.h, 2, scale)
+biplot.pcoa(spe.h.pcoa, spe.std, dir.axis2 = -1)
+abline(h = 0, lty = 3)
+abline(v = 0, lty = 3)
+
+# Comparison of PCoA results with Euclidean and non-Euclidean dissimilarity matrices
+# Allows to choose the analsis displaying the highest proportion of variation on axes 1+2
+
+is.euclid(dist(spe.h))   # PCoA on a Hellinger distance matrix
+summary(spe.h.pcoa)
+head(spe.h.pcoa$values)
+is.euclid(spe.bray)   # PCoA on a Bray-Curtis dissimilarity matrix
+spe.bray.pcoa <- pcoa(spe.bray)
+head(spe.bray.pcoa$values)
+is.euclid(sqrt(spe.bray))   # PCoA on a square root of a Bray-Curtis dissimilarity matrix
+spe.braysq.pcoa <- pcoa(sqrt(spe.bray))
+head(spe.braysq.pcoa$values)
+spe.brayl.pcoa <- pcoa(spe.bray, correction = "lingoes")    # PCoA on a Bray-Curtis diss. matrix with Lingoes
+head(spe.brayl.pcoa$values)
+spe.brayc.pcoa <- pcoa(spe.bray, correction = "cailliez")   # PCoA on a Bray-Curtis dissimilarity matrix with Cailliez
+head(spe.brayc.pcoa$values)
+
+# The highest description on the first two axes is achieved with spe.h.pcoa (Hellinger) 
+
+# Final analysis:
+# ***************
+# We rather compute a PCA on the Hellinger-transformed data (quicker computation), following
+# Legender and Gallagher (2001; transformation-based PCA, of tb-PCA). This is the same as 
+# performing a PCoA on Hellinger distances.
+
+# PCoA on a Euclidean distance matrix computed on a Hellinger-transformed species abundance 
+# matrix
+spe.h <- decostand(datam2, "hellinger")
+spe.h.pca <- rda(spe.h)
+summary(spe.h.pca)
+par(mfrow=c(1, 1), mar = c(1, 1, 1, 1))
+# Biplot on Hellinger-transformed species data
+biplot.pcoa(spe.h.pcoa, spe.h, dir.axis2 = -1)
+abline(h = 0, lty = 3)
+abline(v = 0, lty = 3)
+# Plot personnalisé :
+# * * * * * * * * * *
+
+pcoa.sc <- scores(spe.h.pcoa, display = c("sites", "species"), choices = c(1:2))
+abline(h = 0, lty = 3)
+abline(v = 0, lty = 3)
+for (i in 1:nrow(Y)) points(nmds.sc[i, 1], nmds.sc[i, 2], pch = tis[i], bg = bg[i])
+
