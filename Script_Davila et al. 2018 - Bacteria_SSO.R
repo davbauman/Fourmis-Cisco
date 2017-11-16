@@ -32,12 +32,12 @@ str(data)
 # Should the different sexual structures be compared together or separately?
 # **************************************************************************
 
-sex <- "Female"   # Either "Male" or "Female"
+sex <- "Male"   # Either "Male" or "Female"
 
 if (sex == "Male") {
   sub <- subset(data, Ind == "Male")
   sub <- subset(sub, Tissue != "cuticle")
-  sub <- droplevels(sub, c("Gyne", "Queen_1d", "Queen_24d", "Queen_3d", "Queen_9d", 
+  sub <- droplevels(sub, c("Gyne", "q1d", "q24d", "q3d", "q9d", 
                            "bursa_cop_env", "bursa_cop_liq", "spermatheca_env", 
                            "spermatheca_liq", "cuticle"))
 } else {
@@ -681,12 +681,13 @@ for (i in 1:ncol(datam)) {
   list.modmc[[i]] <- summary(modmc)
   matresults[, i+1] <- sapply(as.numeric(coef(modmc)), sign)
 }
+colnames(matresults)[c(2:(ncol(datam)+1))] <- paste("OTU", c(1:ncol(datam)), sep = "_")
 
 # Manually erase the coefficient signs corresponding to non significant results:
-i <- 1
+i <- 29
 list.modmc[[i]]
-v <- c(1:12)[-c(6,12)]
-matresults2[v, i+1] <- NA
+v <- c(1:16)[-c(6,12)]
+matresults[v, i+1] <- NA
 
 for (i in 1:nrow(matresults)) {
   matresults[i, 52] <- length(which(matresults[i, c(2:51)] == "pos"))
@@ -698,10 +699,10 @@ write.table(matresults, "results_multcomp_2way-manova.txt", sep = "\t")
 
 # II.3. Distance-based RDA on Bray-Curtis distances:
 # **************************************************
-# We first remove the empty rows (samples without any detected bacteria)
-row0 <- which(as.numeric(apply(as.matrix(datam), 1, sum)) == 0)
+# Empty colums (bacteria OTU never detected):
+col0 <- which(as.numeric(apply(as.matrix(datam), 2, sum)) == 0)
+if (length(col0) > 0) datam2 <- datam[, -col0] else datam2 <- datam
 
-datam2 <- datam[-row0, ]
 dim(datam2)
 
 Ind <- data[-row0, 1]
