@@ -2,6 +2,10 @@
 # ****** Bacteria community in the Sperm Storange Organs (SSO) ****** #
 #######################################################################
 
+# Males and females are analysed separately.
+# In females, we only consider gyne, q1d, and q24d (Ind), cut., bursa_(liq+env), 
+# sperma_(liq+env) (Tissues) --> fusion of liquid and envelopes in bursa and spermatheca
+
 ### I. Univariate analyses:
 # *************************
 # *************************
@@ -15,6 +19,7 @@ sidak <- function (p, n) {
 }
 
 source("anova.1way.R")
+source("anova.2way.unbalanced.R")
 source("t.perm.R")
 
 # Data input:
@@ -23,34 +28,30 @@ source("t.perm.R")
 data <- read.table("data_univ_details_abund.txt", header = TRUE, sep = "\t")
 
 data$Ind <- factor(data$Ind, levels = c("Male", "Gyne", "q1d", "q3d", "q9d", "q24d"))
-data$Tissue <- factor(data$Tissue, levels = c("accessory_gland", "seminal_ves_env", 
-                                              "seminal_ves_liq", "cuticle", "bursa_cop_env",
+data$Tissue <- factor(data$Tissue, levels = c("seminal_ves_env", "seminal_ves_liq",  
+                                              "accessory_gland", "bursa_cop_env",
                                               "bursa_cop_liq", "spermatheca_env", 
-                                              "spermatheca_liq"))
+                                              "spermatheca_liq", "cuticle"))
+data <- subset(data, Ind != "q3d" & Ind != "q9d" & Tissue != "seminal_ves_env")
+data <- droplevels(data, c("q3d", "q9d", "seminal_ves_env"))
+
 str(data)
 
 # Should the different sexual structures be compared together or separately?
 # **************************************************************************
 
-sex <- "Male"   # Either "Male" or "Female"
+# Analysis of male tissues:
+# *************************
 
-if (sex == "Male") {
-  sub <- subset(data, Ind == "Male")
-  sub <- subset(sub, Tissue != "cuticle")
-  sub <- droplevels(sub, c("Gyne", "q1d", "q24d", "q3d", "q9d", 
-                           "bursa_cop_env", "bursa_cop_liq", "spermatheca_env", 
-                           "spermatheca_liq", "cuticle"))
-} else {
-  sub <- subset(data, Ind != "Male")
-  sub <- subset(sub, Tissue != "cuticle")
-  sub <- droplevels(sub, c("Male", "accessory_gland", "seminal_ves_env", "seminal_ves_liq",
-                           "cuticle"))
-}
+sub <- subset(data, Ind == "Male")
+sub <- sub[, -1]
+sub <- droplevels(sub, c("bursa_cop_liq", "spermatheca_liq", "bursa_cop_env", 
+                         "spermatheca_env"))
 
 # I.1. General significance test of the model:
 # ********************************************
 
-test <- anova.1way(abund ~ Tissue, data = sub, nperm = 9999)
+test <- anova.1way(abund ~ Tissue, data = sub, nperm = 999)
 test
 
 # II. Multiple comparisons by permutations:
@@ -61,36 +62,17 @@ listdata <- vector("list", length(levels(factor(sub$Tissue))))
 
 names(listdata) <- levels(factor(sub$Tissue))
 
-if (sex == "Male") {
-  listdata[[1]] <- subset(sub, Tissue == "accessory_gland")
-  listdata[[2]] <- subset(sub, Tissue == "seminal_ves_env")
-  listdata[[3]] <- subset(sub, Tissue == "seminal_ves_liq")
+listdata[[1]] <- subset(sub, Tissue == "seminal_ves_liq")
+listdata[[2]] <- subset(sub, Tissue == "accessory_gland")
+listdata[[3]] <- subset(sub, Tissue == "cuticle")
 
-  # Matrix of comparisons defining the elements of listdata to be compared:
-  matcomp <- matrix(c(1, 2,
-                      1, 3,
-                      2, 3), ncol = 2, byrow = T)
-  row.names(matcomp) <- c("accessory_gland - seminal_ves_env", 
-                          "accessory_gland - seminal_ves_liq", 
-                          "seminal_ves_env - seminal_ves_liq")
-} else { # We consider the females
-  listdata[[1]] <- subset(sub, Tissue == "bursa_cop_env")
-  listdata[[2]] <- subset(sub, Tissue == "bursa_cop_liq")
-  listdata[[3]] <- subset(sub, Tissue == "spermatheca_env")
-  listdata[[4]] <- subset(sub, Tissue == "spermatheca_liq")
-   
-  # Matrix of comparisons defining the elements of listdata to be compared:
-  matcomp <- matrix(c(1, 2,
-                      1, 3,
-                      1, 4,
-                      2, 3,
-                      2, 4,
-                      3, 4), ncol = 2, byrow = T)
-  row.names(matcomp) <- c("bursa_cop_env - bursa_cop_liq", "bursa_cop_env - spermatheca_env",
-                          "bursa_cop_env - spermatheca_liq", "bursa_cop_liq - spermatheca_env",
-                          "bursa_cop_liq - spermatheca_liq", 
-                          "spermatheca_env - spermatheca_liq")
-  }
+# Matrix of comparisons defining the elements of listdata to be compared:
+matcomp <- matrix(c(1, 2,
+                    1, 3,
+                    2, 3), ncol = 2, byrow = T)
+row.names(matcomp) <- c("seminal_ves_liq - accessory_gland", 
+                        "seminal_ves_liq - cuticle", 
+                        "accessory_gland - cuticle")
 
 # We create a result matrix containing three columns: 'tref' for the observed t.Student 
 # statistic values, 'p_uncorr' for the uncorrected p-value as obtained with the permutation
@@ -103,154 +85,77 @@ colnames(matresults) <- c("t.ref","p_uncorr", "p_corr")
 row.names(matresults) <- row.names(matcomp)
 
 for (i in 1:nrow(matcomp)) {
-t <- t.perm(listdata[[matcomp[i, 1]]]$abund, listdata[[matcomp[i, 2]]]$abund, 
-                     nperm = 9999, silent = TRUE)
-  matresults[i, 1] <- t$t.ref
-  matresults[i, 2] <- t$p.perm
-  matresults[i, 3] <- sidak(t$p.perm, nrow(matcomp))
+  t <- t.perm(listdata[[matcomp[i, 1]]]$abund, listdata[[matcomp[i, 2]]]$abund, 
+              nperm = 999, silent = TRUE)
+  matresults[i, 1] <- round(t$t.ref, 2)
+  matresults[i, 2] <- round(t$p.perm, 4)
+  matresults[i, 3] <- round(sidak(t$p.perm, nrow(matcomp)), 4)
 }
 
-file_name <- paste("Results_Mult_Comparisons_abund", sex, ".txt", sep = "")
+sex <- "Male"
+
+file_name <- paste("Results_Mult_Comparisons_abund-V2", sex, ".txt", sep = "")
 write.table(matresults, file = file_name, sep = "\t")
 
-# boxplot(sub$abund ~ sub$Tissue)
-
-# We do the same for the females but adding explicitly the "ind" factor:
-# **********************************************************************
+# Analysis of the females:
+# ************************
 
 sub <- subset(data, Ind != "Male")
-sub <- subset(sub, Tissue != "cuticle")
-sub <- droplevels(sub, c("Male", "accessory_gland", "seminal_ves_env", "seminal_ves_liq",
-                         "cuticle"))
+sub <- droplevels(sub, c("Male", "accessory_gland", "seminal_ves_liq"))
+sub$Tissue <- as.character(sub$Tissue)
+w1 <- which(sub[, 2] == "bursa_cop_env")
+w2 <- which(sub[, 2] == "bursa_cop_liq")
+sub$Tissue[c(w1, w2)] <- "bursa_cop"
+w3 <- which(sub[, 2] == "spermatheca_env")
+w4 <- which(sub[, 2] == "spermatheca_liq")
+sub$Tissue[c(w3, w4)] <- "spermatheca"
+sub$Tissue <- as.factor(sub$Tissue)
+sub$Tissue <- factor(sub$Tissue, levels = c("bursa_cop", "spermatheca", "cuticle"))
 
 # I.1. General significance test of the model:
 # ********************************************
 
-test <- anova.2way.unbalanced(sub$abund, sub$Tissue, sub$Ind, model="direct", nperm = 9999,
+test <- anova.2way.unbalanced(sub$abund, sub$Tissue, sub$Ind, model="direct", nperm = 999,
                               strata = FALSE, silent = FALSE)
 test
 
 # II. Multiple comparisons by permutations:
 # *****************************************
+# We want to compare gyne-q1d and q1d-q24d for the spermatheca, the cuticle (and the bursa).
+# So, we are interested, for a given tissue, to know how the abundance of bacteria varies
+# between consecutive time points.
 
-# We create a list for the dataframe subsets. The subsets are the levels of the factor 'Tissue'.
-listdata <- vector("list", length(levels(factor(sub$Ind))))
+listdata <- vector("list", 9)
 
-names(listdata) <- levels(factor(sub$Ind))
+names(listdata) <- c("cuticle_Gyne", "cuticle_q1d", "cuticle_q24d", "bursa_Gyne", "bursa_q1d", 
+                     "bursa_q24d", "sperma_Gyne", "sperma_q1d", "sperma_q24d")
 
-listdata[[1]] <- subset(sub, Ind == "Gyne")
-listdata[[2]] <- subset(sub, Ind == "q1d")
-listdata[[3]] <- subset(sub, Ind == "q3d")
-listdata[[4]] <- subset(sub, Ind == "q9d")
-listdata[[5]] <- subset(sub, Ind == "q24d")
-  
-  # Matrix of comparisons defining the elements of listdata to be compared:
-  matcomp <- matrix(c(1, 2,
-                      2, 3,
-                      3, 4,
-                      4, 5,
-                      1, 3,
-                      1, 4,
-                      1, 5,
-                      2, 4,
-                      2, 5), ncol = 2, byrow = T)
-  row.names(matcomp) <- c("gyne - q1d", "q1d - q3d", "q3d - q9d", "q9d - q24d", "gyne - q3d",
-                          "gyne - q9d", "gyne - q24d", "q1d - q9d", "q1d - q24d")
+cuticle <- subset(sub, Tissue == "cuticle")
+listdata[[1]] <- subset(cuticle, Ind == "Gyne")
+listdata[[2]] <- subset(cuticle, Ind == "q1d")
+listdata[[3]] <- subset(cuticle, Ind == "q24d")
 
-# We create a result matrix containing three columns: 'tref' for the observed t.Student 
-# statistic values, 'p_uncorr' for the uncorrected p-value as obtained with the permutation
-# test, and 'p_corr' for the p-value after performing a Sidak correction for multiple 
-# comparisons (here, nb of tests = nb elements of rows of matcomp). 
-# The latter prevents an inflation of the type I error rate and is therefore mandatory.
+bursa <- subset(sub, Tissue == "bursa_cop")
+listdata[[4]] <- subset(bursa, Ind == "Gyne")
+listdata[[5]] <- subset(bursa, Ind == "q1d")
+listdata[[6]] <- subset(bursa, Ind == "q24d")
 
-matresults <- matrix(ncol = 3, nrow = nrow(matcomp))
-colnames(matresults) <- c("t.ref","p_uncorr", "p_corr")
-row.names(matresults) <- row.names(matcomp)
+sperma <- subset(sub, Tissue == "spermatheca")
+listdata[[7]] <- subset(sperma, Ind == "Gyne")
+listdata[[8]] <- subset(sperma, Ind == "q1d")
+listdata[[9]] <- subset(sperma, Ind == "q24d")
 
-for (i in 1:nrow(matcomp)) {
-  t <- t.perm(listdata[[matcomp[i, 1]]]$abund, listdata[[matcomp[i, 2]]]$abund, 
-              nperm = 9999, silent = TRUE)
-  matresults[i, 1] <- t$t.ref
-  matresults[i, 2] <- t$p.perm
-  matresults[i, 3] <- sidak(t$p.perm, nrow(matcomp))
-}
-
-file_name <- paste("Results_Mult_Comparisons_abund", sex, ".txt", sep = "")
-write.table(matresults, file = file_name, sep = "\t")
-
-# II. We pool the sexual tissues together and we now run the final analysis:
-# **************************************************************************
-# **************************************************************************
-
-# Data input:
-# ***********
-
-data <- read.table("data_univ_abund.txt", header = TRUE, sep = "\t")
-
-data$Ind <- factor(data$Ind, levels = c("Male", "Gyne", "q1d", "q3d", "q9d", "q24d"))
-data$Tissue <- factor(data$Tissue, levels = c("cuticle", "sex"))
-str(data)
-
-# The reference levels of Ind and Tissue are Male and cuticle.
-
-# II.1. General significance test of the model:
-# ********************************************
-
-test <- anova.2way.unbalanced(data$abund, data$Tissue, data$Ind, model="direct", nperm = 9999,
-                              strata=FALSE, silent=FALSE)
-test
-
-# II.2. Multiple comparisons by permutations:
-# *******************************************
-
-# We create a list for the dataframe subsets. The subsets are the levels of the factor 'Tissue'.
-listdata <- vector("list", 12)
-
-names(listdata) <- c("cuticle_Male", "cuticle_Gyne", "cuticle_q1d", "cuticle_q3d",
-                     "cuticle_q9d", "cuticle_q24d", "sex_Male", "sex_Gyne", "sex_q1d", 
-                     "sex_q3d", "sex_q9d", "sex_q24d")
-
-cuticle <- subset(data, Tissue == "cuticle")
-listdata[[1]] <- subset(cuticle, Ind == "Male")
-listdata[[2]] <- subset(cuticle, Ind == "Gyne")
-listdata[[3]] <- subset(cuticle, Ind == "q1d")
-listdata[[4]] <- subset(cuticle, Ind == "q3d")
-listdata[[5]] <- subset(cuticle, Ind == "q9d")
-listdata[[6]] <- subset(cuticle, Ind == "q24d")
-
-sex <- subset(data, Tissue == "sex")
-listdata[[7]] <- subset(sex, Ind == "Male")
-listdata[[8]] <- subset(sex, Ind == "Gyne")
-listdata[[9]] <- subset(sex, Ind == "q1d")
-listdata[[10]] <- subset(sex, Ind == "q3d")
-listdata[[11]] <- subset(sex, Ind == "q9d")
-listdata[[12]] <- subset(sex, Ind == "q24d")
-  
 # Matrix of comparisons defining the elements of listdata to be compared:
-matcomp <- matrix(c(1, 7,
-                    2, 8,
-                    3, 9,
-                    4, 10,
-                    5, 11,
-                    6, 12,
-                    7, 8,
-                    7, 9,
-                    8, 9,
-                    9, 10,
-                    10, 11,
-                    11, 12,
-                    1, 2,
-                    1, 3,
+matcomp <- matrix(c(1, 2,
                     2, 3,
-                    3, 4), ncol = 2, byrow = T)
-row.names(matcomp) <- c("cuticle_Male - sex_Male", "cuticle_Gyne - sex_Gyne", 
-                        "cuticle_q1d - sex_q1d", "cuticle_q3d - sex_q3d", 
-                        "cuticle_q9d - sex_q9d", "cuticle_q24d - sex_q24d",
-                        "sex_Male - sex_Gyne", "sex_Male - sex_q1d", 
-                        "sex_Gyne - sex_q1d", "sex_q1d - sex_q3d", 
-                        "sex_q3d - sex_q9d", "sex_q9d - sex_q24d", 
-                        "cuticle_Male - cuticle_Gyne", "cuticle_Male - cuticle_q1d",
-                        "cuticle_Gyne - cuticle_q1d", "cuticle_q1d - cuticle_q3d")
+                    4, 5,
+                    5, 6,
+                    7, 8,
+                    8, 9), ncol = 2, byrow = T)
+
+row.names(matcomp) <- c("cuticle_Gyne - cuticle_q1d", "cuticle_q1d - cuticle_q24d", 
+                        "bursa_Gyne - bursa_q1d", "bursa_q1d - bursa_q24d", 
+                        "sperma_Gyne - sperma_q1d", "sperma_q1d - sperma_q24d")
 
 # We create a result matrix containing three columns: 'tref' for the observed t.Student 
 # statistic values, 'p_uncorr' for the uncorrected p-value as obtained with the permutation
@@ -263,15 +168,27 @@ colnames(matresults) <- c("t.ref","p_uncorr", "p_corr")
 row.names(matresults) <- row.names(matcomp)
 
 for (i in 1:nrow(matcomp)) {
-  t <- t.perm(listdata[[matcomp[i, 1]]]$abund, listdata[[matcomp[i, 2]]]$abund, 
+  t <- t.perm.median(listdata[[matcomp[i, 1]]]$abund, listdata[[matcomp[i, 2]]]$abund, 
               nperm = 9999, silent = TRUE)
-  matresults[i, 1] <- t$t.ref
-  matresults[i, 2] <- t$p.perm
-  matresults[i, 3] <- sidak(t$p.perm, nrow(matcomp))
+  matresults[i, 1] <- round(t$t.ref, 2)
+  matresults[i, 2] <- round(t$p.perm, 4)
+  matresults[i, 3] <- round(sidak(t$p.perm, nrow(matcomp)), 4)
 }
 
-file_name <- paste("Results_Mult_Comparisons_Final_abund", ".txt", sep = "")
+sex <- "females"
+
+file_name <- paste("Results_Mult_Comparisons_abund-V2", sex, ".txt", sep = "")
 write.table(matresults, file = file_name, sep = "\t")
+
+# Boxplot of the factor "Ind":
+sub2 <- sub[, -2]
+par(mar = c(10, 3, 0, 0))
+boxplot(sub$abund ~ sub$Ind + sub$Tissue, las = 2)
+
+
+
+
+
 
 
 ### II. Multivariate analyses:
@@ -625,8 +542,8 @@ anova(global.rda, step = 1000, perm.max = 1000)
 
 ### Multiple-comparison test:
 # ***************************
-   # We build the contrast matrix containing the hypotheses that we want to test:
-   # ****************************************************************************
+# We build the contrast matrix containing the hypotheses that we want to test:
+# ****************************************************************************
 
 # In order to know in what order the contrast matrix must be built:
 mod <- lm(abund ~ Ind * Tissue, data = data)
@@ -634,22 +551,22 @@ simplified_names <- gsub("Tissue|Ind", "", row.names(summary(mod)$coefficients))
 data.frame(id = 1:length(simplified_names), names = simplified_names)
 
 X <- rbind(
-    "male cuticle - male sex"     <- c(1,0,0,0,0,0,0,0,0,0,0,0) - c(1,0,0,0,0,0,1,0,0,0,0,0),
-    "gyne cuticle - gyne sex"     <- c(1,1,0,0,0,0,0,0,0,0,0,0) - c(1,1,0,0,0,0,1,1,0,0,0,0),
-    "q1d cuticle - q1d sex"       <- c(1,0,1,0,0,0,0,0,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
-    "q3d cuticle - q3d sex"       <- c(1,0,0,1,0,0,0,0,0,0,0,0) - c(1,0,0,1,0,0,1,0,0,1,0,0),
-    "q9d cuticle - q9d sex"       <- c(1,0,0,0,1,0,0,0,0,0,0,0) - c(1,0,0,0,1,0,1,0,0,0,1,0),
-    "q24d cuticle - q24d sex"     <- c(1,0,0,0,0,1,0,0,0,0,0,0) - c(1,0,0,0,0,1,1,0,0,0,0,1),
-    "male sex - gyne sex"         <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,1,0,0,0,0,1,1,0,0,0,0),
-    "male sex - q1d sex"          <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
-    "gyne sex - q1d sex"          <- c(1,1,0,0,0,0,1,1,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
-    "q1d sex - q3d sex"           <- c(1,0,1,0,0,0,1,0,1,0,0,0) - c(1,0,0,1,0,0,1,0,0,1,0,0),
-    "q3d sex - q9d sex"           <- c(1,0,0,1,0,0,1,0,0,1,0,0) - c(1,0,0,0,1,0,1,0,0,0,1,0),
-    "q9d sex - q24d sex"          <- c(1,0,0,0,1,0,1,0,0,0,1,0) - c(1,0,0,0,0,1,1,0,0,0,0,1),
-    "male cuticle - q9d cuticle"  <- c(1,0,0,0,0,0,0,0,0,0,0,0) - c(1,0,0,0,1,0,0,0,0,0,0,0),
-    "male cuticle - q24d cuticle" <- c(1,0,0,0,0,0,0,0,0,0,0,0) - c(1,0,0,0,0,1,0,0,0,0,0,0),
-    "male sex - q9d sex"          <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,0,0,0,1,0,1,0,0,0,1,0),
-    "male sex - q24d sex"         <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,0,0,0,0,1,1,0,0,0,0,1)
+  "male cuticle - male sex"     <- c(1,0,0,0,0,0,0,0,0,0,0,0) - c(1,0,0,0,0,0,1,0,0,0,0,0),
+  "gyne cuticle - gyne sex"     <- c(1,1,0,0,0,0,0,0,0,0,0,0) - c(1,1,0,0,0,0,1,1,0,0,0,0),
+  "q1d cuticle - q1d sex"       <- c(1,0,1,0,0,0,0,0,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
+  "q3d cuticle - q3d sex"       <- c(1,0,0,1,0,0,0,0,0,0,0,0) - c(1,0,0,1,0,0,1,0,0,1,0,0),
+  "q9d cuticle - q9d sex"       <- c(1,0,0,0,1,0,0,0,0,0,0,0) - c(1,0,0,0,1,0,1,0,0,0,1,0),
+  "q24d cuticle - q24d sex"     <- c(1,0,0,0,0,1,0,0,0,0,0,0) - c(1,0,0,0,0,1,1,0,0,0,0,1),
+  "male sex - gyne sex"         <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,1,0,0,0,0,1,1,0,0,0,0),
+  "male sex - q1d sex"          <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
+  "gyne sex - q1d sex"          <- c(1,1,0,0,0,0,1,1,0,0,0,0) - c(1,0,1,0,0,0,1,0,1,0,0,0),
+  "q1d sex - q3d sex"           <- c(1,0,1,0,0,0,1,0,1,0,0,0) - c(1,0,0,1,0,0,1,0,0,1,0,0),
+  "q3d sex - q9d sex"           <- c(1,0,0,1,0,0,1,0,0,1,0,0) - c(1,0,0,0,1,0,1,0,0,0,1,0),
+  "q9d sex - q24d sex"          <- c(1,0,0,0,1,0,1,0,0,0,1,0) - c(1,0,0,0,0,1,1,0,0,0,0,1),
+  "male cuticle - q9d cuticle"  <- c(1,0,0,0,0,0,0,0,0,0,0,0) - c(1,0,0,0,1,0,0,0,0,0,0,0),
+  "male cuticle - q24d cuticle" <- c(1,0,0,0,0,0,0,0,0,0,0,0) - c(1,0,0,0,0,1,0,0,0,0,0,0),
+  "male sex - q9d sex"          <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,0,0,0,1,0,1,0,0,0,1,0),
+  "male sex - q24d sex"         <- c(1,0,0,0,0,0,1,0,0,0,0,0) - c(1,0,0,0,0,1,1,0,0,0,0,1)
 )
 
 colnames(X) <- simplified_names
@@ -717,7 +634,7 @@ global.dbrda <- capscale(datam2 ~ Ind + Tissue + Ind * Tissue, distance = "bray"
 anova(global.dbrda, step = 1000, perm.max = 1000)
 #summary(global.dbrda)
 (R2adj_db <- RsquareAdj(global.dbrda)$adj.r.squared)
-  
+
 # II.4. Normal RDA with factors and plot with centroids:
 # ******************************************************
 var <- as.data.frame(cbind(Ind, Tissue))
